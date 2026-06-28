@@ -35,7 +35,7 @@ jobs:
     steps:
 
       # Get the Current Date Time Stamp as an Environment Variable
-      # We can use '%Y%m%d_%H%M' if we need more "precision" in builds
+      # We can use '%Y%m%d_%H%M' if we really need more "precision" in the build tag
       - name: Generate DTS
         run: echo "DTS=$(TZ='Asia/Singapore' date +'%Y%m%d')" >> $GITHUB_ENV
 
