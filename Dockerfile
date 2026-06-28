@@ -1,0 +1,43 @@
+# DWPK FrankenPHP / Caddy Reverse Proxy + Cloudflare SSL Services
+# PHP 8.5 on Debian Trixie (Debian v13)
+# Last Updated: 20260113
+
+# This is a multi-stage docker build, so that development files can be discarded after the build is complete
+
+# Get the FrankenPHP Builder image
+FROM dunglas/frankenphp:builder-php8.5-trixie AS builder
+
+# Copy xcaddy from the Caddy Builder image
+COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
+
+# Build the updated FrankenPHP binary with the extra Caddy modules
+# CGO must be enabled to build FrankenPHP
+# Mercure and Vulcain are included in the official build, but feel free to remove them
+# We add extra Caddy modules at the end
+RUN CGO_ENABLED=1 \
+    XCADDY_SETCAP=1 \
+    XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx" \
+    CGO_CFLAGS=$(php-config --includes) \
+    CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
+    xcaddy build \
+        --output /usr/local/bin/frankenphp \
+        --with github.com/dunglas/frankenphp=./ \
+        --with github.com/dunglas/frankenphp/caddy=./caddy/ \
+        --with github.com/dunglas/caddy-cbrotli \
+        --with github.com/dunglas/mercure/caddy \
+        --with github.com/dunglas/vulcain/caddy \
+        --with github.com/caddy-dns/cloudflare
+
+# Get the default FrankenPHP image
+FROM dunglas/frankenphp:php8.5-trixie AS runner
+
+# Replace the official binary with the one we just built
+COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
+
+# Add additional PHP extensions in the final docker image:
+# RUN install-php-extensions \
+#     pdo_mysql \
+#     gd \
+#     intl \
+#     zip \
+#     opcache

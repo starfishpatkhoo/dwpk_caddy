@@ -1,0 +1,93 @@
+name: Build and Publish Container Image
+
+# REMINDER: GHCR package names are always strictly lowercase! If repo names have upper case, they need to be adjusted before being used here.
+
+# Triggers the workflow on _ANY_ tag push, or manually from the Actions Tab of the Repo
+# Generally, we should tag this with "vYYYYMMDD" since we take the "latest" from Caddy and FrankenPHP
+# REMINDER: When uploading a new image with an existing tags, the old image will remain, but simply become untagged (eg. "latest")
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+
+# We push to GitHub Container Registry instead of DockerHub
+# These two variables are needed for the Container Registry
+# REMINDER: github.repository == "username/repo"
+# REMINDER: github.event.repository.name == "repo"
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+
+    # REMINDER: GITHUB_TOKEN is a secure, automatically generated authentication token that allows GitHub Actions to interact with the GitHub API on your behalf during a workflow run.
+    # Sets the necessary permissions for the GITHUB_TOKEN
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    steps:
+
+      # Get the Current Date Time Stamp as an Environment Variable
+      # We can use '%Y%m%d_%H%M' if we need more "precision" in builds
+      - name: Generate DTS
+        run: echo "DTS=$(TZ='Asia/Singapore' date +'%Y%m%d')" >> $GITHUB_ENV
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # We need docker buildx especiall if we are:
+      # - building multiple platforms, more than just linux/amd64
+      # - generating security attestations at build time
+      # - using advanced Dockerfile features like 'RUN mount'
+      # - not pushing the image to any registry
+      # TL;DR: docker buildx is not required all the time, but recommended
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=v${{ env.DTS }}
+            type=raw,value=latest
+          # type=ref,event=tag
+
+      - name: Build and push Docker image
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Delete old untagged images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ github.event.repository.name }}
+          package-type: 'container'
+          delete-only-untagged-versions: 'true'
+          token: ${{ secrets.GITHUB_TOKEN }}
