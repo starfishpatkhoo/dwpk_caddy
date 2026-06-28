@@ -28,8 +28,9 @@ jobs:
     permissions:
       contents: read
       packages: write
-      attestations: write
       id-token: write
+      attestations: write
+      artifact-metadata: write
 
     steps:
 
@@ -76,6 +77,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # If we generate the provenance here, docker pull will pull the provenance from ghcr.io instead of the image - duh.
+          provenance: false
 
       - name: Generate artifact attestation
         uses: actions/attest@v4
@@ -83,6 +86,7 @@ jobs:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Delete old untagged images
         uses: actions/delete-package-versions@v5
