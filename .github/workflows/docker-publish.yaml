@@ -42,11 +42,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      # We need docker buildx especiall if we are:
+      # We need docker buildx especially if we are:
       # - building multiple platforms, more than just linux/amd64
       # - generating security attestations at build time
       # - using advanced Dockerfile features like 'RUN mount'
-      # - not pushing the image to any registry
+      # - pushing the image to some registry
       # TL;DR: docker buildx is not required all the time, but recommended
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
