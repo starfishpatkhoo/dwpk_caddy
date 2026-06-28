@@ -87,7 +87,6 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           # Keep the attestation in GitHub's database, not GHCR
           push-to-registry: false
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Delete old untagged images
         uses: actions/delete-package-versions@v5
