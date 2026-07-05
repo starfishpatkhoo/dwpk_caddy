@@ -64,7 +64,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=v${{ env.DTS }}
+            type=raw,value=v1.0-${{ env.DTS }}
             type=raw,value=latest
           # type=ref,event=tag
 
