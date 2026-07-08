@@ -42,14 +42,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      # We need docker buildx especially if we are:
-      # - building multiple platforms, more than just linux/amd64
+      # ---- Claude Sonnet 5
+      # Custom-built FrankenPHP binaries (via xcaddy --with ...=./) lose Go's version stamping.
+      # Because of that, `frankenphp version` does not report proper version information.
+      # Instead, we need to read it from the base image itself.
+      - name: Get FrankenPHP and PHP version information
+        run: |
+          BASE_IMAGE=$(grep -oP '(?<=^FROM )\S+(?=\s+AS runner)' Dockerfile)
+          echo "Base image: $BASE_IMAGE"
+
+          docker pull "$BASE_IMAGE"
+          VERSION_INFO=$(docker run --rm "$BASE_IMAGE" frankenphp version)
+          echo "Version info: $VERSION_INFO"
+
+          FRANKENPHP_VERSION=$(echo "$VERSION_INFO" | grep -oP '(?<=FrankenPHP v)[0-9]+\.[0-9]+\.[0-9]+')
+          PHP_VERSION=$(echo "$VERSION_INFO" | grep -oP '(?<=PHP )[0-9]+\.[0-9]+\.[0-9]+')
+
+          echo "FRANKENPHP_VERSION=$FRANKENPHP_VERSION" >> $GITHUB_ENV
+          echo "PHP_VERSION=$PHP_VERSION" >> $GITHUB_ENV
+      # ---- Claude Sonnet 5
+
+      # We need docker buildx (and its own docker engine) especially if we are:
+      # - building multiple platforms, more than just the default "linux/amd64"
+      # - use --cache-to/--cache-from options for registry/GHA caches
       # - generating security attestations at build time
-      # - using advanced Dockerfile features like 'RUN mount'
-      # - pushing the image to some registry
-      # TL;DR: docker buildx is not required all the time, but recommended
+      # - using advanced Dockerfile features like `RUN mount`
+      # TL;DR: docker buildx is not required all the time, but recommended for more advanced builds
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        # ---- Claude Sonnet 5
+        # NOTE: The previous step getting the FrankenPHP/PHP versions pulls the image using our host's docker engine to our host's cache.
+        # By default, `docker/setup-buildx-action` uses its own docker engine with its own cache, and not the host's.
+        # This would make us pull the image twice, for two different docker engines.
+        # _IF_ we want to optimise this, force `docker/setup-buildx-action` to use our host's docker engine instead of its own.
+        # REMINDER: 
+        #   The host's docker engine is not as capable as the buildx-action's engine (eg, no multi-platform builds, only the default)
+        #   If we need multi-platforms, accept the double-pull, or use advanced caching like `--cache-to type=gha`
+        with:
+          driver: docker
+        # platforms: linux/amd64,linux/arm64    # Not possible with `driver: docker`
+        # ---- Claude Sonnet 5
 
       - name: Log in to the Container registry
         uses: docker/login-action@v4
@@ -64,7 +96,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=v1.0-${{ env.DTS }}
+            type=raw,value=v1.0-frkn${{ env.FRANKENPHP_VERSION }}-php${{ env.PHP_VERSION }}-b${{ env.DTS }}
             type=raw,value=latest
           # type=ref,event=tag
 
@@ -77,13 +109,21 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # ---- Claude Sonnet 5
+          # REMINDER: 
+          #   _IF_ we used the host's docker engine in `docker/setup-buildx-action`,
+          #   it does not support building the provenance/SBOM attestations at build-time.
+          #   But this is actually OK since we generate a proper attestation separately anyway.
+          provenance: false
+          # ---- Claude Sonnet 5
 
       - name: Generate artifact attestation
         uses: actions/attest@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
           subject-digest: ${{ steps.push.outputs.digest }}
-          # If pushing to Docker Hub, keep the attestation in GitHub's database, not index.docker.io
+          # _IF_ we are pushing to Docker Hub, don't push the attestation to the registry (index.docker.io)
+          # This is because Docker Hub is older, and doesn't support this like ghcr.io does
           # push-to-registry: false
 
       - name: Delete old untagged images
